@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GIF Builder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .drop-zone.dragover { border-color: #6366f1; background-color: rgba(99, 102, 241, 0.05); }
+    .frame-card { cursor: grab; }
+    .frame-card.dragging { opacity: 0.4; }
+    .frame-card .remove-btn { opacity: 0; transition: opacity 0.15s; }
+    .frame-card:hover .remove-btn { opacity: 1; }
+    .drag-over-left { border-left: 3px solid #6366f1 !important; }
+    .drag-over-right { border-right: 3px solid #6366f1 !important; }
+    input[type="range"] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; background: #e2e8f0; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #6366f1; cursor: pointer; }
+    .progress-bar { transition: width 0.3s ease; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div class="max-w-4xl mx-auto px-4 py-12">
+    <!-- Header -->
+    <div class="text-center mb-10">
+      <h1 class="text-3xl font-bold text-gray-900 tracking-tight">GIF Builder</h1>
+      <p class="text-gray-500 mt-2">Drop your images, adjust the timing, export a GIF.</p>
+    </div>
+
+    <!-- Drop Zone -->
+    <div id="dropZone" class="drop-zone border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer hover:border-gray-400 transition-colors mb-8">
+      <svg class="mx-auto h-10 w-10 text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"/>
+      </svg>
+      <p class="text-gray-600 font-medium">Drop images here or click to browse</p>
+      <p class="text-gray-400 text-sm mt-1">PNG, JPG, WebP</p>
+      <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
+    </div>
+
+    <!-- Frames -->
+    <div id="framesContainer" class="hidden mb-8">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Frames</h2>
+        <button id="clearAll" class="text-xs text-red-500 hover:text-red-700 font-medium">Clear all</button>
+      </div>
+      <div id="framesList" class="flex gap-3 overflow-x-auto pb-3"></div>
+      <p class="text-xs text-gray-400 mt-2">Drag to reorder. Click &times; to remove.</p>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls" class="hidden bg-white rounded-xl border border-gray-200 p-6 mb-8 space-y-6">
+      <!-- Speed -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-sm font-medium text-gray-700">Frame delay</label>
+          <span id="delayValue" class="text-sm text-gray-500 tabular-nums">200ms</span>
+        </div>
+        <input type="range" id="delaySlider" min="50" max="2000" step="50" value="200" class="w-full">
+        <div class="flex justify-between text-xs text-gray-400 mt-1">
+          <span>Fast</span>
+          <span>Slow</span>
+        </div>
+      </div>
+
+      <!-- Size -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-sm font-medium text-gray-700">Output width</label>
+          <span id="widthValue" class="text-sm text-gray-500 tabular-nums">480px</span>
+        </div>
+        <input type="range" id="widthSlider" min="120" max="1200" step="40" value="480" class="w-full">
+        <div class="flex justify-between text-xs text-gray-400 mt-1">
+          <span>120px</span>
+          <span>1200px</span>
+        </div>
+      </div>
+
+      <!-- Quality -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-sm font-medium text-gray-700">Quality</label>
+          <span id="qualityLabel" class="text-sm text-gray-500">Good</span>
+        </div>
+        <input type="range" id="qualitySlider" min="1" max="20" step="1" value="10" class="w-full">
+        <div class="flex justify-between text-xs text-gray-400 mt-1">
+          <span>Best (slow)</span>
+          <span>Fast (lower)</span>
+        </div>
+      </div>
+
+      <!-- Loop -->
+      <div class="flex items-center gap-3">
+        <label class="text-sm font-medium text-gray-700">Loop forever</label>
+        <button id="loopToggle" class="relative w-10 h-6 bg-indigo-500 rounded-full transition-colors" data-on="true">
+          <span class="absolute top-1 left-5 w-4 h-4 bg-white rounded-full shadow transition-all"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Generate -->
+    <div id="generateSection" class="hidden">
+      <button id="generateBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-colors">
+        Generate GIF
+      </button>
+      <!-- Progress -->
+      <div id="progressContainer" class="hidden mt-4">
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div id="progressBar" class="progress-bar bg-indigo-500 h-2 rounded-full" style="width: 0%"></div>
+        </div>
+        <p id="progressText" class="text-sm text-gray-500 mt-2 text-center">Rendering...</p>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div id="previewSection" class="hidden mt-8 text-center">
+      <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Preview</h2>
+      <div class="inline-block border border-gray-200 rounded-xl overflow-hidden bg-white p-2">
+        <img id="previewImg" class="max-w-full rounded-lg">
+      </div>
+      <div class="mt-4 flex justify-center gap-3">
+        <a id="downloadBtn" class="inline-flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white font-semibold py-2.5 px-5 rounded-xl transition-colors" download="animation.gif">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3"/></svg>
+          Download GIF
+        </a>
+        <span id="fileSize" class="self-center text-sm text-gray-400"></span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const framesList = document.getElementById('framesList');
+    const framesContainer = document.getElementById('framesContainer');
+    const controls = document.getElementById('controls');
+    const generateSection = document.getElementById('generateSection');
+    const generateBtn = document.getElementById('generateBtn');
+    const delaySlider = document.getElementById('delaySlider');
+    const delayValue = document.getElementById('delayValue');
+    const widthSlider = document.getElementById('widthSlider');
+    const widthValue = document.getElementById('widthValue');
+    const qualitySlider = document.getElementById('qualitySlider');
+    const qualityLabel = document.getElementById('qualityLabel');
+    const loopToggle = document.getElementById('loopToggle');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const previewSection = document.getElementById('previewSection');
+    const previewImg = document.getElementById('previewImg');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const fileSize = document.getElementById('fileSize');
+
+    let frames = []; // { id, file, url }
+    let frameId = 0;
+    let dragSrcId = null;
+
+    // --- File handling ---
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      addFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+
+    function addFiles(fileList) {
+      for (const file of fileList) {
+        if (!file.type.startsWith('image/')) continue;
+        const url = URL.createObjectURL(file);
+        frames.push({ id: ++frameId, file, url });
+      }
+      renderFrames();
+    }
+
+    function renderFrames() {
+      const show = frames.length > 0;
+      framesContainer.classList.toggle('hidden', !show);
+      controls.classList.toggle('hidden', !show);
+      generateSection.classList.toggle('hidden', !show);
+
+      framesList.innerHTML = '';
+      frames.forEach((f, i) => {
+        const card = document.createElement('div');
+        card.className = 'frame-card relative flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden border-2 border-gray-200 bg-gray-100';
+        card.draggable = true;
+        card.dataset.id = f.id;
+
+        card.innerHTML = `
+          <img src="${f.url}" class="w-full h-full object-cover pointer-events-none">
+          <span class="absolute bottom-1 left-1 text-[10px] font-semibold text-white bg-black/50 px-1.5 py-0.5 rounded">${i + 1}</span>
+          <button class="remove-btn absolute top-1 right-1 w-5 h-5 bg-black/60 hover:bg-red-600 text-white rounded-full text-xs flex items-center justify-center">&times;</button>
+        `;
+
+        card.querySelector('.remove-btn').addEventListener('click', e => {
+          e.stopPropagation();
+          frames = frames.filter(x => x.id !== f.id);
+          URL.revokeObjectURL(f.url);
+          renderFrames();
+        });
+
+        // Drag reorder
+        card.addEventListener('dragstart', e => {
+          dragSrcId = f.id;
+          card.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+        });
+        card.addEventListener('dragend', () => {
+          card.classList.remove('dragging');
+          document.querySelectorAll('.drag-over-left, .drag-over-right').forEach(el => el.classList.remove('drag-over-left', 'drag-over-right'));
+        });
+        card.addEventListener('dragover', e => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const rect = card.getBoundingClientRect();
+          const mid = rect.left + rect.width / 2;
+          card.classList.toggle('drag-over-left', e.clientX < mid);
+          card.classList.toggle('drag-over-right', e.clientX >= mid);
+        });
+        card.addEventListener('dragleave', () => {
+          card.classList.remove('drag-over-left', 'drag-over-right');
+        });
+        card.addEventListener('drop', e => {
+          e.preventDefault();
+          card.classList.remove('drag-over-left', 'drag-over-right');
+          if (dragSrcId === f.id) return;
+          const fromIdx = frames.findIndex(x => x.id === dragSrcId);
+          let toIdx = frames.findIndex(x => x.id === f.id);
+          const rect = card.getBoundingClientRect();
+          if (e.clientX >= rect.left + rect.width / 2) toIdx++;
+          const [moved] = frames.splice(fromIdx, 1);
+          if (fromIdx < toIdx) toIdx--;
+          frames.splice(toIdx, 0, moved);
+          renderFrames();
+        });
+
+        framesList.appendChild(card);
+      });
+    }
+
+    // --- Clear all ---
+    document.getElementById('clearAll').addEventListener('click', () => {
+      frames.forEach(f => URL.revokeObjectURL(f.url));
+      frames = [];
+      renderFrames();
+      previewSection.classList.add('hidden');
+    });
+
+    // --- Sliders ---
+    delaySlider.addEventListener('input', () => { delayValue.textContent = delaySlider.value + 'ms'; });
+    widthSlider.addEventListener('input', () => { widthValue.textContent = widthSlider.value + 'px'; });
+    qualitySlider.addEventListener('input', () => {
+      const v = +qualitySlider.value;
+      qualityLabel.textContent = v <= 5 ? 'Best' : v <= 10 ? 'Good' : v <= 15 ? 'Fair' : 'Fast';
+    });
+
+    // --- Loop toggle ---
+    loopToggle.addEventListener('click', () => {
+      const on = loopToggle.dataset.on === 'true';
+      loopToggle.dataset.on = !on;
+      loopToggle.classList.toggle('bg-indigo-500', !on);
+      loopToggle.classList.toggle('bg-gray-300', on);
+      const dot = loopToggle.querySelector('span');
+      dot.classList.toggle('left-5', !on);
+      dot.classList.toggle('left-1', on);
+    });
+
+    // --- Generate GIF ---
+    generateBtn.addEventListener('click', async () => {
+      if (frames.length < 2) { alert('Add at least 2 images.'); return; }
+
+      generateBtn.disabled = true;
+      generateBtn.textContent = 'Generating...';
+      generateBtn.classList.add('opacity-60');
+      progressContainer.classList.remove('hidden');
+      progressBar.style.width = '0%';
+      progressText.textContent = 'Loading frames...';
+      previewSection.classList.add('hidden');
+
+      const targetWidth = +widthSlider.value;
+      const delay = +delaySlider.value;
+      const quality = +qualitySlider.value;
+      const loop = loopToggle.dataset.on === 'true';
+
+      // Load all images and compute dimensions
+      const images = await Promise.all(frames.map(f => {
+        return new Promise(resolve => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.src = f.url;
+        });
+      }));
+
+      // Compute uniform height based on target width
+      const targetHeight = Math.round(
+        Math.max(...images.map(img => (targetWidth / img.naturalWidth) * img.naturalHeight))
+      );
+
+      progressText.textContent = 'Rendering GIF...';
+
+      const gif = new GIF({
+        workers: 2,
+        quality,
+        width: targetWidth,
+        height: targetHeight,
+        workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js',
+        repeat: loop ? 0 : -1,
+      });
+
+      // Draw each frame onto a canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d');
+
+      images.forEach(img => {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
+        const scale = Math.min(targetWidth / img.naturalWidth, targetHeight / img.naturalHeight);
+        const w = img.naturalWidth * scale;
+        const h = img.naturalHeight * scale;
+        const x = (targetWidth - w) / 2;
+        const y = (targetHeight - h) / 2;
+        ctx.drawImage(img, x, y, w, h);
+        gif.addFrame(ctx, { copy: true, delay });
+      });
+
+      gif.on('progress', p => {
+        const pct = Math.round(p * 100);
+        progressBar.style.width = pct + '%';
+        progressText.textContent = `Encoding... ${pct}%`;
+      });
+
+      gif.on('finished', blob => {
+        const url = URL.createObjectURL(blob);
+        previewImg.src = url;
+        downloadBtn.href = url;
+        const size = blob.size;
+        fileSize.textContent = size > 1048576 ? (size / 1048576).toFixed(1) + ' MB' : (size / 1024).toFixed(0) + ' KB';
+        previewSection.classList.remove('hidden');
+        progressContainer.classList.add('hidden');
+        generateBtn.disabled = false;
+        generateBtn.textContent = 'Generate GIF';
+        generateBtn.classList.remove('opacity-60');
+      });
+
+      gif.render();
+    });
+  </script>
+</body>
+</html>
