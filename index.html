@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GIF Builder</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script type="module">
-    import { GIFEncoder, quantize, applyPalette } from 'https://esm.sh/gifenc@1.0.3';
-    window.gifenc = { GIFEncoder, quantize, applyPalette };
-  </script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     body { font-family: 'Inter', sans-serif; }
@@ -120,7 +116,7 @@
   </div>
 
   <script type="module">
-    const { GIFEncoder, quantize, applyPalette } = window.gifenc;
+    import { GIFEncoder, quantize, applyPalette } from 'https://esm.sh/gifenc@1.0.3';
 
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
