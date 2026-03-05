@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GIF Builder</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+  <script type="module">
+    import { GIFEncoder, quantize, applyPalette } from 'https://esm.sh/gifenc@1.0.3';
+    window.gifenc = { GIFEncoder, quantize, applyPalette };
+  </script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     body { font-family: 'Inter', sans-serif; }
@@ -77,19 +80,6 @@
         </div>
       </div>
 
-      <!-- Quality -->
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <label class="text-sm font-medium text-gray-700">Quality</label>
-          <span id="qualityLabel" class="text-sm text-gray-500">Good</span>
-        </div>
-        <input type="range" id="qualitySlider" min="1" max="20" step="1" value="10" class="w-full">
-        <div class="flex justify-between text-xs text-gray-400 mt-1">
-          <span>Best (slow)</span>
-          <span>Fast (lower)</span>
-        </div>
-      </div>
-
       <!-- Loop -->
       <div class="flex items-center gap-3">
         <label class="text-sm font-medium text-gray-700">Loop forever</label>
@@ -129,7 +119,9 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    const { GIFEncoder, quantize, applyPalette } = window.gifenc;
+
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
     const framesList = document.getElementById('framesList');
@@ -141,8 +133,6 @@
     const delayValue = document.getElementById('delayValue');
     const widthSlider = document.getElementById('widthSlider');
     const widthValue = document.getElementById('widthValue');
-    const qualitySlider = document.getElementById('qualitySlider');
-    const qualityLabel = document.getElementById('qualityLabel');
     const loopToggle = document.getElementById('loopToggle');
     const progressContainer = document.getElementById('progressContainer');
     const progressBar = document.getElementById('progressBar');
@@ -150,9 +140,9 @@
     const previewSection = document.getElementById('previewSection');
     const previewImg = document.getElementById('previewImg');
     const downloadBtn = document.getElementById('downloadBtn');
-    const fileSize = document.getElementById('fileSize');
+    const fileSizeEl = document.getElementById('fileSize');
 
-    let frames = []; // { id, file, url }
+    let frames = [];
     let frameId = 0;
     let dragSrcId = null;
 
@@ -252,10 +242,6 @@
     // --- Sliders ---
     delaySlider.addEventListener('input', () => { delayValue.textContent = delaySlider.value + 'ms'; });
     widthSlider.addEventListener('input', () => { widthValue.textContent = widthSlider.value + 'px'; });
-    qualitySlider.addEventListener('input', () => {
-      const v = +qualitySlider.value;
-      qualityLabel.textContent = v <= 5 ? 'Best' : v <= 10 ? 'Good' : v <= 15 ? 'Fair' : 'Fast';
-    });
 
     // --- Loop toggle ---
     loopToggle.addEventListener('click', () => {
@@ -268,16 +254,9 @@
       dot.classList.toggle('left-1', on);
     });
 
-    // --- Preload worker as blob URL to avoid CORS issues ---
-    let workerBlobUrl = null;
-    fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js')
-      .then(r => r.blob())
-      .then(blob => { workerBlobUrl = URL.createObjectURL(blob); });
-
     // --- Generate GIF ---
     generateBtn.addEventListener('click', async () => {
       if (frames.length < 2) { alert('Add at least 2 images.'); return; }
-      if (!workerBlobUrl) { alert('GIF encoder still loading, try again in a moment.'); return; }
 
       generateBtn.disabled = true;
       generateBtn.textContent = 'Generating...';
@@ -289,79 +268,88 @@
 
       const targetWidth = +widthSlider.value;
       const delay = +delaySlider.value;
-      const quality = +qualitySlider.value;
       const loop = loopToggle.dataset.on === 'true';
 
-      // Load all images and compute dimensions
-      const images = await Promise.all(frames.map(f => {
-        return new Promise(resolve => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.src = f.url;
-        });
-      }));
+      try {
+        // Load all images
+        const images = await Promise.all(frames.map(f => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = f.url;
+          });
+        }));
 
-      // Compute uniform height based on target width
-      const targetHeight = Math.round(
-        Math.max(...images.map(img => (targetWidth / img.naturalWidth) * img.naturalHeight))
-      );
+        // Compute uniform height based on target width
+        const targetHeight = Math.round(
+          Math.max(...images.map(img => (targetWidth / img.naturalWidth) * img.naturalHeight))
+        );
 
-      progressText.textContent = 'Rendering GIF...';
+        // GIF delay is in 1/100ths of a second
+        const gifDelay = Math.round(delay / 10);
 
-      const gif = new GIF({
-        workers: 2,
-        quality,
-        width: targetWidth,
-        height: targetHeight,
-        workerScript: workerBlobUrl,
-        repeat: loop ? 0 : -1,
-      });
+        const gif = GIFEncoder();
 
-      // Draw each frame onto a canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d');
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-      images.forEach(img => {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
-        const scale = Math.min(targetWidth / img.naturalWidth, targetHeight / img.naturalHeight);
-        const w = img.naturalWidth * scale;
-        const h = img.naturalHeight * scale;
-        const x = (targetWidth - w) / 2;
-        const y = (targetHeight - h) / 2;
-        ctx.drawImage(img, x, y, w, h);
-        gif.addFrame(ctx, { copy: true, delay });
-      });
+        for (let i = 0; i < images.length; i++) {
+          const img = images[i];
+          progressText.textContent = `Encoding frame ${i + 1} / ${images.length}...`;
+          progressBar.style.width = Math.round(((i + 1) / images.length) * 100) + '%';
 
-      gif.on('progress', p => {
-        const pct = Math.round(p * 100);
-        progressBar.style.width = pct + '%';
-        progressText.textContent = `Encoding... ${pct}%`;
-      });
+          // Draw frame
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, targetWidth, targetHeight);
+          const scale = Math.min(targetWidth / img.naturalWidth, targetHeight / img.naturalHeight);
+          const w = img.naturalWidth * scale;
+          const h = img.naturalHeight * scale;
+          const x = (targetWidth - w) / 2;
+          const y = (targetHeight - h) / 2;
+          ctx.drawImage(img, x, y, w, h);
 
-      gif.on('abort', () => {
-        progressText.textContent = 'Encoding failed.';
-        generateBtn.disabled = false;
-        generateBtn.textContent = 'Generate GIF';
-        generateBtn.classList.remove('opacity-60');
-      });
+          // Get RGBA pixel data
+          const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+          const { data } = imageData;
 
-      gif.on('finished', blob => {
+          // Convert RGBA to RGB for gifenc
+          const rgb = new Uint8Array(targetWidth * targetHeight * 3);
+          for (let j = 0, k = 0; j < data.length; j += 4, k += 3) {
+            rgb[k] = data[j];
+            rgb[k + 1] = data[j + 1];
+            rgb[k + 2] = data[j + 2];
+          }
+
+          // Quantize to 256-color palette and write frame
+          const palette = quantize(rgb, 256, { format: 'rgb444' });
+          const index = applyPalette(rgb, palette, 'rgb444');
+          gif.writeFrame(index, targetWidth, targetHeight, { palette, delay: gifDelay, repeat: loop ? 0 : -1 });
+
+          // Yield to keep UI responsive
+          await new Promise(r => setTimeout(r, 0));
+        }
+
+        gif.finish();
+
+        const blob = new Blob([gif.bytes()], { type: 'image/gif' });
         const url = URL.createObjectURL(blob);
         previewImg.src = url;
         downloadBtn.href = url;
         const size = blob.size;
-        fileSize.textContent = size > 1048576 ? (size / 1048576).toFixed(1) + ' MB' : (size / 1024).toFixed(0) + ' KB';
+        fileSizeEl.textContent = size > 1048576 ? (size / 1048576).toFixed(1) + ' MB' : (size / 1024).toFixed(0) + ' KB';
         previewSection.classList.remove('hidden');
+      } catch (err) {
+        progressText.textContent = 'Error: ' + err.message;
+        console.error(err);
+      } finally {
         progressContainer.classList.add('hidden');
         generateBtn.disabled = false;
         generateBtn.textContent = 'Generate GIF';
         generateBtn.classList.remove('opacity-60');
-      });
-
-      gif.render();
+      }
     });
   </script>
 </body>
